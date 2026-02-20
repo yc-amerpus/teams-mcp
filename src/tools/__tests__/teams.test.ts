@@ -42,43 +42,73 @@ describe("Teams Tools", () => {
 
       expect(mockServer.tool).toHaveBeenCalledWith(
         "list_teams",
-        "List all Microsoft Teams that the current user is a member of. Returns team names, descriptions, and IDs.",
+        expect.stringContaining("List Microsoft Teams accessible to the application"),
         {},
         expect.any(Function)
       );
     });
 
-    it("should return list of joined teams", async () => {
+    it("should return list of teams via groups endpoint", async () => {
       const teamsResponse: GraphApiResponse<Team> = {
         value: [mockTeam],
       };
 
-      mockClient.api().get.mockResolvedValue(teamsResponse);
+      const mockApiChain = {
+        get: vi.fn().mockResolvedValue(teamsResponse),
+        filter: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        top: vi.fn().mockReturnThis(),
+        post: vi.fn(),
+      };
+      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
       registerTeamsTools(mockServer, mockGraphService);
 
       const tool = mockServer.getTool("list_teams");
       const result = await tool.handler();
 
-      expect(mockClient.api).toHaveBeenCalledWith("/me/joinedTeams");
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              [
-                {
-                  id: mockTeam.id,
-                  displayName: mockTeam.displayName,
-                  description: mockTeam.description,
-                  isArchived: mockTeam.isArchived,
-                },
-              ],
-              null,
-              2
-            ),
-          },
-        ],
+      expect(mockClient.api).toHaveBeenCalledWith("/groups");
+      expect(mockApiChain.filter).toHaveBeenCalledWith(
+        "resourceProvisioningOptions/Any(x:x eq 'Team')"
+      );
+      expect(mockApiChain.select).toHaveBeenCalledWith("id,displayName,description");
+      expect(mockApiChain.top).toHaveBeenCalledWith(100);
+
+      const teams = JSON.parse(result.content[0].text);
+      expect(teams).toHaveLength(1);
+      expect(teams[0].id).toBe(mockTeam.id);
+      expect(teams[0].displayName).toBe(mockTeam.displayName);
+    });
+
+    it("should fetch specific teams when TEAM_IDS is set", async () => {
+      const originalTeamIds = process.env.TEAM_IDS;
+      process.env.TEAM_IDS = "test-team-id,other-team-id";
+
+      const mockApiChain = {
+        get: vi.fn().mockResolvedValueOnce(mockTeam).mockRejectedValueOnce(new Error("Not found")),
+        post: vi.fn(),
+      };
+      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
+
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
+        // suppress console.error in test
       });
+
+      registerTeamsTools(mockServer, mockGraphService);
+
+      const tool = mockServer.getTool("list_teams");
+      const result = await tool.handler();
+
+      expect(mockClient.api).toHaveBeenCalledWith("/teams/test-team-id");
+      expect(mockClient.api).toHaveBeenCalledWith("/teams/other-team-id");
+
+      const teams = JSON.parse(result.content[0].text);
+      expect(teams).toHaveLength(1);
+      expect(teams[0].id).toBe(mockTeam.id);
+
+      consoleErrorSpy.mockRestore();
+
+      if (originalTeamIds === undefined) delete process.env.TEAM_IDS;
+      else process.env.TEAM_IDS = originalTeamIds;
     });
 
     it("should handle empty teams list", async () => {
@@ -86,7 +116,14 @@ describe("Teams Tools", () => {
         value: [],
       };
 
-      mockClient.api().get.mockResolvedValue(emptyResponse);
+      const mockApiChain = {
+        get: vi.fn().mockResolvedValue(emptyResponse),
+        filter: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        top: vi.fn().mockReturnThis(),
+        post: vi.fn(),
+      };
+      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
       registerTeamsTools(mockServer, mockGraphService);
 
       const tool = mockServer.getTool("list_teams");
@@ -103,7 +140,14 @@ describe("Teams Tools", () => {
     });
 
     it("should handle API errors", async () => {
-      mockClient.api().get.mockRejectedValue(new Error("Teams API error"));
+      const mockApiChain = {
+        get: vi.fn().mockRejectedValue(new Error("Teams API error")),
+        filter: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        top: vi.fn().mockReturnThis(),
+        post: vi.fn(),
+      };
+      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
       registerTeamsTools(mockServer, mockGraphService);
 
       const tool = mockServer.getTool("list_teams");

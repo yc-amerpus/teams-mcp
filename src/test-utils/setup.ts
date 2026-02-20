@@ -3,7 +3,6 @@ import { setupServer } from "msw/node";
 import { afterEach, beforeEach, expect, vi } from "vitest";
 import type {
   Channel,
-  Chat,
   ChatMessage,
   ConversationMember,
   GraphApiResponse,
@@ -34,12 +33,6 @@ export const mockChannel: Channel = {
   displayName: "General",
   description: "General discussion channel",
   membershipType: "standard",
-};
-
-export const mockChat: Chat = {
-  id: "test-chat-id",
-  topic: "Test Chat",
-  chatType: "group",
 };
 
 export const mockChatMessage: ChatMessage = {
@@ -89,12 +82,26 @@ export const graphApiHandlers = [
     return new HttpResponse(null, { status: 404 });
   }),
 
-  // Teams endpoints
-  http.get("https://graph.microsoft.com/v1.0/me/joinedTeams", () => {
+  // Organization endpoint (for app-only auth verification)
+  http.get("https://graph.microsoft.com/v1.0/organization", () => {
+    return HttpResponse.json({
+      value: [{ id: "test-org-id", displayName: "Test Organization" }],
+    });
+  }),
+
+  // Teams endpoints - groups query for listing teams
+  http.get("https://graph.microsoft.com/v1.0/groups", () => {
     const response: GraphApiResponse<Team> = {
       value: [mockTeam],
     };
     return HttpResponse.json(response);
+  }),
+
+  http.get("https://graph.microsoft.com/v1.0/teams/:teamId", ({ params }) => {
+    if (params.teamId === "test-team-id") {
+      return HttpResponse.json(mockTeam);
+    }
+    return new HttpResponse(null, { status: 404 });
   }),
 
   http.get("https://graph.microsoft.com/v1.0/teams/:teamId/channels", ({ params }) => {
@@ -148,99 +155,6 @@ export const graphApiHandlers = [
     }
   ),
 
-  // Chats endpoints
-  http.get("https://graph.microsoft.com/v1.0/me/chats", () => {
-    const response: GraphApiResponse<Chat> = {
-      value: [mockChat],
-    };
-    return HttpResponse.json(response);
-  }),
-
-  http.get("https://graph.microsoft.com/v1.0/me/chats/:chatId/messages", ({ params, request }) => {
-    if (params.chatId === "test-chat-id") {
-      const url = new URL(request.url);
-      const fromUser = url.searchParams.get("$filter")?.includes("from/user/id");
-
-      const response: GraphApiResponse<ChatMessage> = {
-        value: fromUser ? [] : [mockChatMessage],
-      };
-      return HttpResponse.json(response);
-    }
-    return new HttpResponse(null, { status: 404 });
-  }),
-
-  http.post(
-    "https://graph.microsoft.com/v1.0/me/chats/:chatId/messages",
-    async ({ params, request }) => {
-      if (params.chatId === "test-chat-id") {
-        const body = (await request.json()) as any;
-        const response = {
-          ...mockChatMessage,
-          id: "new-chat-message-id",
-          body: body.body,
-          createdDateTime: new Date().toISOString(),
-        };
-        return HttpResponse.json(response);
-      }
-      return new HttpResponse(null, { status: 404 });
-    }
-  ),
-
-  http.post("https://graph.microsoft.com/v1.0/me/chats", async ({ request }) => {
-    const body = (await request.json()) as any;
-    const response = {
-      ...mockChat,
-      id: "new-chat-id",
-      topic: body.topic,
-      chatType: body.chatType,
-    };
-    return HttpResponse.json(response);
-  }),
-
-  // Search endpoints
-  http.post("https://graph.microsoft.com/v1.0/search/query", async ({ request }) => {
-    const body = (await request.json()) as any;
-    const searchRequest = body.requests[0];
-
-    const response = {
-      value: [
-        {
-          searchTerms: [searchRequest.query.queryString],
-          hitsContainers: [
-            {
-              hits: [
-                {
-                  hitId: "search-hit-1",
-                  rank: 1,
-                  summary: "Test message found in search",
-                  resource: {
-                    "@odata.type": "#microsoft.graph.chatMessage",
-                    id: "search-message-id",
-                    createdDateTime: "2024-01-01T12:00:00Z",
-                    from: {
-                      user: {
-                        displayName: "Test User",
-                        id: "test-user-id",
-                      },
-                    },
-                    body: {
-                      content: "Test search result message",
-                      contentType: "text",
-                    },
-                    chatId: "test-chat-id",
-                  },
-                },
-              ],
-              total: 1,
-              moreResultsAvailable: false,
-            },
-          ],
-        },
-      ],
-    };
-    return HttpResponse.json(response);
-  }),
-
   // Error scenarios for testing
   http.get("https://graph.microsoft.com/v1.0/error/401", () => {
     return HttpResponse.json(
@@ -287,7 +201,7 @@ beforeEach(() => {
   // Reset all mocks before each test
   vi.clearAllMocks();
 
-  // Mock file system operations for token storage
+  // Mock file system operations
   vi.mock("node:fs", async () => {
     const actual = (await vi.importActual("node:fs")) as any;
     return {
@@ -301,11 +215,6 @@ beforeEach(() => {
       },
     };
   });
-
-  // Mock Azure identity
-  vi.mock("@azure/identity", () => ({
-    DeviceCodeCredential: vi.fn(),
-  }));
 });
 
 afterEach(() => {
@@ -319,15 +228,16 @@ export function createMockGraphService() {
     getInstance: vi.fn().mockReturnThis(),
     getAuthStatus: vi.fn().mockResolvedValue({
       isAuthenticated: true,
-      userPrincipalName: mockUser.userPrincipalName,
-      displayName: mockUser.displayName,
-      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      tenantId: "test-tenant-id",
+      clientId: "test-client-id",
     }),
     getClient: vi.fn().mockResolvedValue({
       api: vi.fn().mockReturnValue({
         get: vi.fn(),
         post: vi.fn(),
         filter: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        top: vi.fn().mockReturnThis(),
       }),
     }),
     isAuthenticated: vi.fn().mockReturnValue(true),

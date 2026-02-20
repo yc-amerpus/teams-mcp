@@ -1,36 +1,19 @@
-import { type AccountInfo, PublicClientApplication } from "@azure/msal-node";
+import { ConfidentialClientApplication } from "@azure/msal-node";
 import { Client } from "@microsoft/microsoft-graph-client";
-import { cachePlugin } from "../msal-cache.js";
 
-const CLIENT_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e";
-const AUTHORITY = "https://login.microsoftonline.com/common";
-
-const DELEGATED_SCOPES = [
-  "User.Read",
-  "User.ReadBasic.All",
-  "Team.ReadBasic.All",
-  "Channel.ReadBasic.All",
-  "ChannelMessage.Read.All",
-  "ChannelMessage.Send",
-  "TeamMember.Read.All",
-  "Chat.ReadBasic",
-  "Chat.ReadWrite",
-];
+const CLIENT_CREDENTIAL_SCOPE = "https://graph.microsoft.com/.default";
 
 export interface AuthStatus {
   isAuthenticated: boolean;
-  userPrincipalName?: string | undefined;
-  displayName?: string | undefined;
-  expiresAt?: string | undefined;
+  tenantId?: string | undefined;
+  clientId?: string | undefined;
 }
 
 export class GraphService {
   private static instance: GraphService;
   private client: Client | undefined;
   private isInitialized = false;
-  private tokenExpiresAt: Date | undefined;
-  private msalApp: PublicClientApplication | undefined;
-  private msalAccount: AccountInfo | undefined;
+  private msalApp: ConfidentialClientApplication | undefined;
 
   static getInstance(): GraphService {
     if (!GraphService.instance) {
@@ -58,35 +41,34 @@ export class GraphService {
         return;
       }
 
-      // Priority 2: MSAL with cached refresh token for automatic token renewal
-      this.msalApp = new PublicClientApplication({
-        auth: {
-          clientId: CLIENT_ID,
-          authority: AUTHORITY,
-        },
-        cache: {
-          cachePlugin,
-        },
-      });
+      // Priority 2: Client credentials via MSAL ConfidentialClientApplication
+      const tenantId = process.env.AZURE_TENANT_ID;
+      const clientId = process.env.AZURE_CLIENT_ID;
+      const clientSecret = process.env.AZURE_CLIENT_SECRET;
 
-      const accounts = await this.msalApp.getTokenCache().getAllAccounts();
-      if (accounts.length === 0) {
+      if (!tenantId || !clientId || !clientSecret) {
+        console.error(
+          "Missing required environment variables: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET"
+        );
         return;
       }
 
-      this.msalAccount = accounts[0];
+      this.msalApp = new ConfidentialClientApplication({
+        auth: {
+          clientId,
+          clientSecret,
+          authority: `https://login.microsoftonline.com/${tenantId}`,
+        },
+      });
 
       // Verify we can acquire a token
-      const result = await this.msalApp.acquireTokenSilent({
-        scopes: DELEGATED_SCOPES,
-        account: this.msalAccount,
+      const result = await this.msalApp.acquireTokenByClientCredential({
+        scopes: [CLIENT_CREDENTIAL_SCOPE],
       });
 
       if (!result) {
         return;
       }
-
-      this.tokenExpiresAt = result.expiresOn ?? undefined;
 
       // Create Graph client with MSAL-backed auth provider for automatic token refresh
       this.client = Client.initWithMiddleware({
@@ -102,22 +84,20 @@ export class GraphService {
   }
 
   private async acquireToken(): Promise<string> {
-    if (!this.msalApp || !this.msalAccount) {
+    if (!this.msalApp) {
       throw new Error("MSAL not initialized");
     }
 
-    const result = await this.msalApp.acquireTokenSilent({
-      scopes: DELEGATED_SCOPES,
-      account: this.msalAccount,
+    const result = await this.msalApp.acquireTokenByClientCredential({
+      scopes: [CLIENT_CREDENTIAL_SCOPE],
     });
 
     if (!result) {
       throw new Error(
-        "Failed to acquire access token. Please re-authenticate: npx @floriscornel/teams-mcp@latest authenticate"
+        "Failed to acquire access token. Check AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET."
       );
     }
 
-    this.tokenExpiresAt = result.expiresOn ?? undefined;
     return result.accessToken;
   }
 
@@ -129,15 +109,14 @@ export class GraphService {
     }
 
     try {
-      const me = await this.client.api("/me").get();
+      await this.client.api("/organization").get();
       return {
         isAuthenticated: true,
-        userPrincipalName: me?.userPrincipalName ?? undefined,
-        displayName: me?.displayName ?? undefined,
-        expiresAt: this.tokenExpiresAt?.toISOString(),
+        tenantId: process.env.AZURE_TENANT_ID,
+        clientId: process.env.AZURE_CLIENT_ID,
       };
     } catch (error) {
-      console.error("Error getting user info:", error);
+      console.error("Error verifying auth:", error);
       return { isAuthenticated: false };
     }
   }
@@ -147,7 +126,7 @@ export class GraphService {
 
     if (!this.client) {
       throw new Error(
-        "Not authenticated. Please run the authentication CLI tool first: npx @floriscornel/teams-mcp@latest authenticate"
+        "Not authenticated. Check AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET environment variables."
       );
     }
     return this.client;

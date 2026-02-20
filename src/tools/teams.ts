@@ -32,15 +32,57 @@ import { processMentionsInHtml, searchUsers, type UserInfo } from "../utils/user
  * @param graphService - The Microsoft Graph service used for API calls.
  */
 export function registerTeamsTools(server: McpServer, graphService: GraphService) {
-  // List user's teams
+  // List teams accessible to the application
   server.tool(
     "list_teams",
-    "List all Microsoft Teams that the current user is a member of. Returns team names, descriptions, and IDs.",
+    "List Microsoft Teams accessible to the application. Returns team names, descriptions, and IDs. If TEAM_IDS environment variable is set, only returns those specific teams.",
     {},
     async () => {
       try {
         const client = await graphService.getClient();
-        const response = (await client.api("/me/joinedTeams").get()) as GraphApiResponse<Team>;
+
+        // Check for TEAM_IDS env var filter
+        const teamIdsEnv = process.env.TEAM_IDS;
+
+        if (teamIdsEnv) {
+          const teamIds = teamIdsEnv
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean);
+          const teamList: TeamSummary[] = [];
+
+          for (const teamId of teamIds) {
+            try {
+              const team = (await client.api(`/teams/${teamId}`).get()) as Team;
+              teamList.push({
+                id: team.id,
+                displayName: team.displayName,
+                description: team.description,
+                isArchived: team.isArchived,
+              });
+            } catch (error) {
+              console.error(`Failed to fetch team ${teamId}:`, error);
+            }
+          }
+
+          if (!teamList.length) {
+            return {
+              content: [{ type: "text", text: "No teams found matching TEAM_IDS filter." }],
+            };
+          }
+
+          return {
+            content: [{ type: "text", text: JSON.stringify(teamList, null, 2) }],
+          };
+        }
+
+        // No filter: query groups with Team provisioning
+        const response = (await client
+          .api("/groups")
+          .filter("resourceProvisioningOptions/Any(x:x eq 'Team')")
+          .select("id,displayName,description")
+          .top(100)
+          .get()) as GraphApiResponse<Team>;
 
         if (!response?.value?.length) {
           return {
@@ -57,7 +99,6 @@ export function registerTeamsTools(server: McpServer, graphService: GraphService
           id: team.id,
           displayName: team.displayName,
           description: team.description,
-          isArchived: team.isArchived,
         }));
 
         return {

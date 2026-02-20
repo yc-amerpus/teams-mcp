@@ -24,82 +24,6 @@ describe("Users Tools", () => {
     vi.clearAllMocks();
   });
 
-  describe("get_current_user tool", () => {
-    it("should register get_current_user tool correctly", () => {
-      registerUsersTools(mockServer, mockGraphService);
-
-      expect(mockServer.tool).toHaveBeenCalledWith(
-        "get_current_user",
-        "Get the current authenticated user's profile information including display name, email, job title, and department.",
-        {},
-        expect.any(Function)
-      );
-    });
-
-    it("should return current user information", async () => {
-      mockClient.api().get.mockResolvedValue(mockUser);
-      registerUsersTools(mockServer, mockGraphService);
-
-      const tool = mockServer.getTool("get_current_user");
-      const result = await tool.handler();
-
-      expect(mockClient.api).toHaveBeenCalledWith("/me");
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              {
-                displayName: mockUser.displayName,
-                userPrincipalName: mockUser.userPrincipalName,
-                mail: mockUser.mail,
-                id: mockUser.id,
-                jobTitle: mockUser.jobTitle,
-                department: mockUser.department,
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      });
-    });
-
-    it("should handle API errors gracefully", async () => {
-      mockClient.api().get.mockRejectedValue(new Error("API Error"));
-      registerUsersTools(mockServer, mockGraphService);
-
-      const tool = mockServer.getTool("get_current_user");
-      const result = await tool.handler();
-
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "❌ Error: API Error",
-          },
-        ],
-      });
-    });
-
-    it("should handle unknown errors", async () => {
-      mockClient.api().get.mockRejectedValue("String error");
-      registerUsersTools(mockServer, mockGraphService);
-
-      const tool = mockServer.getTool("get_current_user");
-      const result = await tool.handler();
-
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "❌ Error: Unknown error occurred",
-          },
-        ],
-      });
-    });
-  });
-
   describe("search_users tool", () => {
     it("should register search_users tool with correct schema", () => {
       registerUsersTools(mockServer, mockGraphService);
@@ -318,16 +242,11 @@ describe("Users Tools", () => {
       mockGraphService.getClient.mockRejectedValue(authError);
       registerUsersTools(mockServer, mockGraphService);
 
-      const tools = ["get_current_user", "search_users", "get_user"];
+      const tools = ["search_users", "get_user"];
 
       for (const toolName of tools) {
         const tool = mockServer.getTool(toolName);
-        const params =
-          toolName === "search_users"
-            ? { query: "test" }
-            : toolName === "get_user"
-              ? { userId: "test" }
-              : {};
+        const params = toolName === "search_users" ? { query: "test" } : { userId: "test" };
 
         const result = await tool.handler(params);
         expect(result.content[0].text).toContain("❌ Error: Not authenticated");

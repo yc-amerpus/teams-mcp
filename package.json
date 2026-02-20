@@ -1,7 +1,7 @@
 {
-  "name": "@floriscornel/teams-mcp",
-  "version": "0.6.0",
-  "description": "MCP server for Microsoft Graph Teams integration",
+  "name": "teams-mcp-app",
+  "version": "0.7.0",
+  "description": "MCP server for Microsoft Graph Teams integration (app-only client credentials auth)",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -21,9 +21,6 @@
     "compile": "tsc",
     "ci": "biome ci src/",
     "dev": "tsx watch src/index.ts",
-    "auth": "node dist/index.js authenticate",
-    "auth:check": "node dist/index.js check",
-    "auth:logout": "node dist/index.js logout",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -52,8 +49,7 @@
     "url": "https://github.com/floriscornel/teams-mcp/issues"
   },
   "dependencies": {
-    "@azure/identity": "^4.13.0",
-    "@azure/identity-cache-persistence": "^1.2.0",
+    "@azure/msal-node": "^2.16.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@microsoft/microsoft-graph-types": "^2.43.1",
     "@modelcontextprotocol/sdk": "^1.26.0",

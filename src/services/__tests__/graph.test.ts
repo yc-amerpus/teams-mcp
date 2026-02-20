@@ -1,18 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mockUser, server } from "../../test-utils/setup.js";
-
-// Mock the msal-cache plugin
-vi.mock("../../msal-cache.js", () => ({
-  cachePlugin: {
-    beforeCacheAccess: vi.fn(),
-    afterCacheAccess: vi.fn(),
-  },
-  CACHE_PATH: "/mock/cache/path",
-}));
+import { server } from "../../test-utils/setup.js";
 
 // Mock @azure/msal-node
 vi.mock("@azure/msal-node", () => ({
-  PublicClientApplication: vi.fn(),
+  ConfidentialClientApplication: vi.fn(),
 }));
 
 // Mock @microsoft/microsoft-graph-client
@@ -23,18 +14,15 @@ vi.mock("@microsoft/microsoft-graph-client", () => ({
 }));
 
 // Import after mocks are set up
-import { PublicClientApplication } from "@azure/msal-node";
+import { ConfidentialClientApplication } from "@azure/msal-node";
 import { Client } from "@microsoft/microsoft-graph-client";
 import { GraphService } from "../graph.js";
 
-/** Set up the default MSAL mock: one account, acquireTokenSilent succeeds */
+/** Set up the default MSAL mock: acquireTokenByClientCredential succeeds */
 function setupDefaultMsalMock() {
-  vi.mocked(PublicClientApplication).mockImplementation(function () {
+  vi.mocked(ConfidentialClientApplication).mockImplementation(function () {
     return {
-      getTokenCache: vi.fn().mockReturnValue({
-        getAllAccounts: vi.fn().mockResolvedValue([{ username: "test@example.com" }]),
-      }),
-      acquireTokenSilent: vi.fn().mockResolvedValue({
+      acquireTokenByClientCredential: vi.fn().mockResolvedValue({
         accessToken: "mock-access-token",
         expiresOn: new Date(Date.now() + 3600000),
       }),
@@ -44,11 +32,18 @@ function setupDefaultMsalMock() {
 
 describe("GraphService", () => {
   let graphService: GraphService;
+  const originalEnv = { ...process.env };
 
   beforeEach(() => {
     server.listen({ onUnhandledRequest: "error" });
     vi.clearAllMocks();
     setupDefaultMsalMock();
+
+    // Set required env vars
+    process.env.AZURE_TENANT_ID = "test-tenant-id";
+    process.env.AZURE_CLIENT_ID = "test-client-id";
+    process.env.AZURE_CLIENT_SECRET = "test-client-secret";
+    delete process.env.AUTH_TOKEN;
 
     // Reset GraphService singleton
     (GraphService as any).instance = undefined;
@@ -58,6 +53,15 @@ describe("GraphService", () => {
   afterEach(() => {
     server.resetHandlers();
     server.close();
+    // Restore env
+    process.env.AZURE_TENANT_ID = originalEnv.AZURE_TENANT_ID;
+    process.env.AZURE_CLIENT_ID = originalEnv.AZURE_CLIENT_ID;
+    process.env.AZURE_CLIENT_SECRET = originalEnv.AZURE_CLIENT_SECRET;
+    if (originalEnv.AUTH_TOKEN === undefined) {
+      delete process.env.AUTH_TOKEN;
+    } else {
+      process.env.AUTH_TOKEN = originalEnv.AUTH_TOKEN;
+    }
   });
 
   describe("getInstance", () => {
@@ -70,13 +74,22 @@ describe("GraphService", () => {
   });
 
   describe("getAuthStatus", () => {
-    it("should return unauthenticated when no MSAL accounts exist", async () => {
-      vi.mocked(PublicClientApplication).mockImplementationOnce(function () {
+    it("should return unauthenticated when env vars are missing", async () => {
+      delete process.env.AZURE_TENANT_ID;
+      delete process.env.AZURE_CLIENT_ID;
+      delete process.env.AZURE_CLIENT_SECRET;
+
+      const status = await graphService.getAuthStatus();
+
+      expect(status).toEqual({ isAuthenticated: false });
+    });
+
+    it("should return unauthenticated when acquireTokenByClientCredential fails", async () => {
+      vi.mocked(ConfidentialClientApplication).mockImplementationOnce(function () {
         return {
-          getTokenCache: vi.fn().mockReturnValue({
-            getAllAccounts: vi.fn().mockResolvedValue([]),
-          }),
-          acquireTokenSilent: vi.fn(),
+          acquireTokenByClientCredential: vi
+            .fn()
+            .mockRejectedValue(new Error("Invalid client secret")),
         };
       } as any);
 
@@ -85,13 +98,10 @@ describe("GraphService", () => {
       expect(status).toEqual({ isAuthenticated: false });
     });
 
-    it("should return unauthenticated when acquireTokenSilent fails", async () => {
-      vi.mocked(PublicClientApplication).mockImplementationOnce(function () {
+    it("should return unauthenticated when acquireTokenByClientCredential returns null", async () => {
+      vi.mocked(ConfidentialClientApplication).mockImplementationOnce(function () {
         return {
-          getTokenCache: vi.fn().mockReturnValue({
-            getAllAccounts: vi.fn().mockResolvedValue([{ username: "test@example.com" }]),
-          }),
-          acquireTokenSilent: vi.fn().mockRejectedValue(new Error("InteractionRequiredAuthError")),
+          acquireTokenByClientCredential: vi.fn().mockResolvedValue(null),
         };
       } as any);
 
@@ -100,25 +110,10 @@ describe("GraphService", () => {
       expect(status).toEqual({ isAuthenticated: false });
     });
 
-    it("should return unauthenticated when acquireTokenSilent returns null", async () => {
-      vi.mocked(PublicClientApplication).mockImplementationOnce(function () {
-        return {
-          getTokenCache: vi.fn().mockReturnValue({
-            getAllAccounts: vi.fn().mockResolvedValue([{ username: "test@example.com" }]),
-          }),
-          acquireTokenSilent: vi.fn().mockResolvedValue(null),
-        };
-      } as any);
-
-      const status = await graphService.getAuthStatus();
-
-      expect(status).toEqual({ isAuthenticated: false });
-    });
-
-    it("should return authenticated status with valid MSAL token", async () => {
+    it("should return authenticated status with valid client credentials", async () => {
       const mockClient = {
         api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
+          get: vi.fn().mockResolvedValue({ value: [{ id: "org-id", displayName: "Test Org" }] }),
         }),
       };
 
@@ -128,10 +123,22 @@ describe("GraphService", () => {
 
       expect(status).toEqual({
         isAuthenticated: true,
-        userPrincipalName: mockUser.userPrincipalName,
-        displayName: mockUser.displayName,
-        expiresAt: expect.any(String),
+        tenantId: "test-tenant-id",
+        clientId: "test-client-id",
       });
+    });
+
+    it("should call /organization endpoint for auth verification", async () => {
+      const mockGet = vi.fn().mockResolvedValue({ value: [{ id: "org-id" }] });
+      const mockClient = {
+        api: vi.fn().mockReturnValue({ get: mockGet }),
+      };
+
+      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
+
+      await graphService.getAuthStatus();
+
+      expect(mockClient.api).toHaveBeenCalledWith("/organization");
     });
 
     it("should handle Graph API errors gracefully", async () => {
@@ -151,24 +158,17 @@ describe("GraphService", () => {
 
   describe("getClient", () => {
     it("should throw error when not authenticated", async () => {
-      vi.mocked(PublicClientApplication).mockImplementationOnce(function () {
-        return {
-          getTokenCache: vi.fn().mockReturnValue({
-            getAllAccounts: vi.fn().mockResolvedValue([]),
-          }),
-          acquireTokenSilent: vi.fn(),
-        };
-      } as any);
+      delete process.env.AZURE_TENANT_ID;
 
       await expect(graphService.getClient()).rejects.toThrow(
-        "Not authenticated. Please run the authentication CLI tool first"
+        "Not authenticated. Check AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET"
       );
     });
 
     it("should return client when authenticated", async () => {
       const mockClient = {
         api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
+          get: vi.fn().mockResolvedValue({ value: [] }),
         }),
       };
 
@@ -188,7 +188,7 @@ describe("GraphService", () => {
     it("should return true when client is initialized", async () => {
       const mockClient = {
         api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
+          get: vi.fn().mockResolvedValue({ value: [] }),
         }),
       };
 
@@ -200,25 +200,22 @@ describe("GraphService", () => {
     });
   });
 
-  describe("MSAL token refresh", () => {
-    it("should use acquireTokenSilent for auth provider", async () => {
-      const mockAcquireTokenSilent = vi.fn().mockResolvedValue({
+  describe("MSAL client credentials", () => {
+    it("should create ConfidentialClientApplication with correct config", async () => {
+      const mockAcquireToken = vi.fn().mockResolvedValue({
         accessToken: "mock-access-token",
         expiresOn: new Date(Date.now() + 3600000),
       });
 
-      vi.mocked(PublicClientApplication).mockImplementationOnce(function () {
+      vi.mocked(ConfidentialClientApplication).mockImplementationOnce(function () {
         return {
-          getTokenCache: vi.fn().mockReturnValue({
-            getAllAccounts: vi.fn().mockResolvedValue([{ username: "test@example.com" }]),
-          }),
-          acquireTokenSilent: mockAcquireTokenSilent,
+          acquireTokenByClientCredential: mockAcquireToken,
         };
       } as any);
 
       const mockClient = {
         api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
+          get: vi.fn().mockResolvedValue({ value: [] }),
         }),
       };
 
@@ -226,41 +223,36 @@ describe("GraphService", () => {
 
       await graphService.getAuthStatus();
 
-      // Verify MSAL PCA was created with correct config
-      expect(PublicClientApplication).toHaveBeenCalledWith(
+      expect(ConfidentialClientApplication).toHaveBeenCalledWith(
         expect.objectContaining({
           auth: expect.objectContaining({
-            clientId: "14d82eec-204b-4c2f-b7e8-296a70dab67e",
-            authority: "https://login.microsoftonline.com/common",
-          }),
-          cache: expect.objectContaining({
-            cachePlugin: expect.any(Object),
+            clientId: "test-client-id",
+            clientSecret: "test-client-secret",
+            authority: "https://login.microsoftonline.com/test-tenant-id",
           }),
         })
       );
 
-      // Verify acquireTokenSilent was called during initialization
-      expect(mockAcquireTokenSilent).toHaveBeenCalled();
+      expect(mockAcquireToken).toHaveBeenCalledWith({
+        scopes: ["https://graph.microsoft.com/.default"],
+      });
     });
 
-    it("should pass auth provider that calls acquireTokenSilent", async () => {
-      const mockAcquireTokenSilent = vi.fn().mockResolvedValue({
+    it("should pass auth provider that calls acquireTokenByClientCredential", async () => {
+      const mockAcquireToken = vi.fn().mockResolvedValue({
         accessToken: "mock-access-token",
         expiresOn: new Date(Date.now() + 3600000),
       });
 
-      vi.mocked(PublicClientApplication).mockImplementationOnce(function () {
+      vi.mocked(ConfidentialClientApplication).mockImplementationOnce(function () {
         return {
-          getTokenCache: vi.fn().mockReturnValue({
-            getAllAccounts: vi.fn().mockResolvedValue([{ username: "test@example.com" }]),
-          }),
-          acquireTokenSilent: mockAcquireTokenSilent,
+          acquireTokenByClientCredential: mockAcquireToken,
         };
       } as any);
 
       const mockClient = {
         api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
+          get: vi.fn().mockResolvedValue({ value: [] }),
         }),
       };
 
@@ -272,12 +264,12 @@ describe("GraphService", () => {
       const initCall = vi.mocked(Client.initWithMiddleware).mock.calls[0];
       const authProvider = (initCall[0] as any).authProvider;
 
-      // Call getAccessToken to verify it uses acquireTokenSilent
+      // Call getAccessToken to verify it uses acquireTokenByClientCredential
       const token = await authProvider.getAccessToken();
       expect(token).toBe("mock-access-token");
 
-      // acquireTokenSilent should have been called (once during init + once via authProvider)
-      expect(mockAcquireTokenSilent).toHaveBeenCalledTimes(2);
+      // acquireTokenByClientCredential should have been called (once during init + once via authProvider)
+      expect(mockAcquireToken).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -285,7 +277,7 @@ describe("GraphService", () => {
     it("should handle concurrent calls to getAuthStatus", async () => {
       const mockClient = {
         api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
+          get: vi.fn().mockResolvedValue({ value: [{ id: "org-id" }] }),
         }),
       };
 
@@ -306,16 +298,6 @@ describe("GraphService", () => {
   });
 
   describe("AUTH_TOKEN environment variable", () => {
-    const originalEnv = process.env.AUTH_TOKEN;
-
-    afterEach(() => {
-      if (originalEnv === undefined) {
-        delete process.env.AUTH_TOKEN;
-      } else {
-        process.env.AUTH_TOKEN = originalEnv;
-      }
-    });
-
     it("should use AUTH_TOKEN from environment when provided", async () => {
       const mockPayload = btoa(JSON.stringify({ aud: "https://graph.microsoft.com" }));
       const validToken = `header.${mockPayload}.signature`;
@@ -323,7 +305,7 @@ describe("GraphService", () => {
 
       const mockClient = {
         api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
+          get: vi.fn().mockResolvedValue({ value: [{ id: "org-id" }] }),
         }),
       };
 
@@ -333,7 +315,7 @@ describe("GraphService", () => {
 
       expect(status.isAuthenticated).toBe(true);
       // MSAL should NOT be used when AUTH_TOKEN is set
-      expect(PublicClientApplication).not.toHaveBeenCalled();
+      expect(ConfidentialClientApplication).not.toHaveBeenCalled();
     });
 
     it("should reject invalid JWT format from AUTH_TOKEN", async () => {
@@ -363,7 +345,7 @@ describe("GraphService", () => {
 
       const mockClient = {
         api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
+          get: vi.fn().mockResolvedValue({ value: [{ id: "org-id" }] }),
         }),
       };
 
@@ -381,7 +363,7 @@ describe("GraphService", () => {
 
       const mockClient = {
         api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
+          get: vi.fn().mockResolvedValue({ value: [{ id: "org-id" }] }),
         }),
       };
 
@@ -390,7 +372,7 @@ describe("GraphService", () => {
       await graphService.getAuthStatus();
 
       // MSAL should not be used when AUTH_TOKEN is present
-      expect(PublicClientApplication).not.toHaveBeenCalled();
+      expect(ConfidentialClientApplication).not.toHaveBeenCalled();
     });
   });
 });
