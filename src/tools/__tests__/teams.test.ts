@@ -1200,7 +1200,14 @@ describe("Teams Tools", () => {
     });
 
     it("should handle unknown errors", async () => {
-      mockClient.api().get.mockRejectedValue("String error");
+      const mockApiChain = {
+        filter: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        top: vi.fn().mockReturnThis(),
+        get: vi.fn().mockRejectedValue("String error"),
+        post: vi.fn(),
+      };
+      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
       registerTeamsTools(mockServer, mockGraphService);
 
       const tool = mockServer.getTool("list_teams");

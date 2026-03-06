@@ -108,17 +108,12 @@ export class GraphService {
       return { isAuthenticated: false };
     }
 
-    try {
-      await this.client.api("/organization").get();
-      return {
-        isAuthenticated: true,
-        tenantId: process.env.AZURE_TENANT_ID,
-        clientId: process.env.AZURE_CLIENT_ID,
-      };
-    } catch (error) {
-      console.error("Error verifying auth:", error);
-      return { isAuthenticated: false };
-    }
+    // If client was initialized, token acquisition succeeded — app is authenticated
+    return {
+      isAuthenticated: true,
+      tenantId: process.env.AZURE_TENANT_ID,
+      clientId: process.env.AZURE_CLIENT_ID,
+    };
   }
 
   async getClient(): Promise<Client> {

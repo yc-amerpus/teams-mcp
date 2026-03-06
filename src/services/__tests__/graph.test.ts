@@ -111,13 +111,7 @@ describe("GraphService", () => {
     });
 
     it("should return authenticated status with valid client credentials", async () => {
-      const mockClient = {
-        api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue({ value: [{ id: "org-id", displayName: "Test Org" }] }),
-        }),
-      };
-
-      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
+      vi.mocked(Client.initWithMiddleware).mockReturnValue({} as any);
 
       const status = await graphService.getAuthStatus();
 
@@ -126,33 +120,6 @@ describe("GraphService", () => {
         tenantId: "test-tenant-id",
         clientId: "test-client-id",
       });
-    });
-
-    it("should call /organization endpoint for auth verification", async () => {
-      const mockGet = vi.fn().mockResolvedValue({ value: [{ id: "org-id" }] });
-      const mockClient = {
-        api: vi.fn().mockReturnValue({ get: mockGet }),
-      };
-
-      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
-
-      await graphService.getAuthStatus();
-
-      expect(mockClient.api).toHaveBeenCalledWith("/organization");
-    });
-
-    it("should handle Graph API errors gracefully", async () => {
-      const mockClient = {
-        api: vi.fn().mockReturnValue({
-          get: vi.fn().mockRejectedValue(new Error("API Error")),
-        }),
-      };
-
-      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
-
-      const status = await graphService.getAuthStatus();
-
-      expect(status).toEqual({ isAuthenticated: false });
     });
   });
 
@@ -275,13 +242,7 @@ describe("GraphService", () => {
 
   describe("concurrent initialization", () => {
     it("should handle concurrent calls to getAuthStatus", async () => {
-      const mockClient = {
-        api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue({ value: [{ id: "org-id" }] }),
-        }),
-      };
-
-      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
+      vi.mocked(Client.initWithMiddleware).mockReturnValue({} as any);
 
       const promises = [
         graphService.getAuthStatus(),
@@ -303,13 +264,7 @@ describe("GraphService", () => {
       const validToken = `header.${mockPayload}.signature`;
       process.env.AUTH_TOKEN = validToken;
 
-      const mockClient = {
-        api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue({ value: [{ id: "org-id" }] }),
-        }),
-      };
-
-      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
+      vi.mocked(Client.initWithMiddleware).mockReturnValue({} as any);
 
       const status = await graphService.getAuthStatus();
 
@@ -343,13 +298,7 @@ describe("GraphService", () => {
       const validToken = `header.${mockPayload}.signature`;
       process.env.AUTH_TOKEN = validToken;
 
-      const mockClient = {
-        api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue({ value: [{ id: "org-id" }] }),
-        }),
-      };
-
-      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
+      vi.mocked(Client.initWithMiddleware).mockReturnValue({} as any);
 
       const status = await graphService.getAuthStatus();
 
