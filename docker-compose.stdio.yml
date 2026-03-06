@@ -1,0 +1,16 @@
+# Docker Compose for teams-mcp stdio mode
+# Use this to build the image, then reference it from VS Code / Claude Desktop config.
+#
+# Usage:
+#   cp .env.example .env   # then fill in your Azure credentials
+#   docker compose -f docker-compose.stdio.yml build
+#   # Then use the image in your MCP client config (see INSTALL.md)
+
+services:
+  teams-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: teams-mcp:latest
+    env_file: .env
+    stdin_open: true

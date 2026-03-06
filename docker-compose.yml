@@ -1,0 +1,17 @@
+# Docker Compose for teams-mcp SSE mode (HTTP/SSE via supergateway)
+# Use this for AnythingLLM, remote MCP clients, or any HTTP-based consumer.
+#
+# Usage:
+#   cp .env.example .env   # then fill in your Azure credentials
+#   docker compose up -d
+#   curl http://localhost:8000/sse
+
+services:
+  teams-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.sse
+    env_file: .env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

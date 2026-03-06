@@ -1,287 +1,148 @@
 # Teams MCP
 
-[![npm version](https://img.shields.io/npm/v/@floriscornel/teams-mcp.svg)](https://www.npmjs.com/package/@floriscornel/teams-mcp)
-[![npm downloads](https://img.shields.io/npm/dm/@floriscornel/teams-mcp.svg)](https://www.npmjs.com/package/@floriscornel/teams-mcp)
-[![codecov](https://codecov.io/gh/floriscornel/teams-mcp/graph/badge.svg)](https://app.codecov.io/gh/floriscornel/teams-mcp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub stars](https://img.shields.io/github/stars/floriscornel/teams-mcp.svg)](https://github.com/floriscornel/teams-mcp/stargazers)
+A Model Context Protocol (MCP) server for Microsoft Teams integration via the Microsoft Graph API. Uses **app-only client credentials** authentication — no interactive login, no browser, runs headlessly as a service.
 
-A Model Context Protocol (MCP) server that provides seamless integration with Microsoft Graph APIs, enabling AI assistants to interact with Microsoft Teams, users, and organizational data.
+Forked from [floriscornel/teams-mcp](https://github.com/floriscornel/teams-mcp) and converted from delegated OAuth (device code flow) to client credentials grant.
 
-<a href="https://glama.ai/mcp/servers/@floriscornel/teams-mcp">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@floriscornel/teams-mcp/badge" alt="Teams MCP server" />
-</a>
+## Quick Start
 
-## 📦 Installation
+```bash
+git clone https://github.com/yc-amerpus/teams-mcp.git
+cd teams-mcp
+npm install && npm run build
+cp .env.example .env   # fill in Azure credentials
+```
 
-To use this MCP server in Cursor/Claude/VS Code, add the following configuration:
+**VS Code** — add to `.vscode/mcp.json`:
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "teams-mcp": {
-      "command": "npx",
-      "args": ["-y", "@floriscornel/teams-mcp@latest"]
+      "command": "node",
+      "args": ["dist/index.js"],
+      "envFile": "${workspaceFolder}/.env"
     }
   }
 }
 ```
 
-## 🚀 Features
-
-### 🔐 Authentication
-- OAuth 2.0 authentication flow with Microsoft Graph
-- Secure token management and refresh
-- Authentication status checking
-
-### 👥 User Management
-- Get current user information
-- Search users by name or email
-- Retrieve detailed user profiles
-- Access organizational directory data
-
-### 🏢 Microsoft Teams Integration
-- **Teams Management**
-  - List user's joined teams
-  - Access team details and metadata
-  
-- **Channel Operations**
-  - List channels within teams
-  - Retrieve channel messages
-  - Send messages to team channels
-  - Support for message importance levels (normal, high, urgent)
-  
-- **Team Members**
-  - List team members and their roles
-  - Access member information
-
-### 💬 Chat & Messaging
-- **1:1 and Group Chats**
-  - List user's chats
-  - Create new 1:1 or group conversations
-  - Retrieve chat message history with filtering and pagination
-  - Send messages to existing chats
-  - Edit previously sent chat messages
-  - Soft delete chat messages
-
-### ✏️ Message Management
-- **Edit & Delete**
-  - Update (edit) sent messages in chats and channels
-  - Soft delete messages in chats and channels (marks as deleted without permanent removal)
-  - Only message senders can update/delete their own messages
-  - Support for Markdown formatting, mentions, and importance levels on edits
-
-### 📎 Media & Attachments
-- **Hosted Content**
-  - Download hosted content (images, files) from chat and channel messages
-  - Access inline images and attachments shared in conversations
-
-### 🔍 Advanced Search & Discovery
-- **Message Search**
-  - Search across all Teams channels and chats using Microsoft Search API
-  - Support for KQL (Keyword Query Language) syntax
-  - Filter by sender, mentions, attachments, importance, and date ranges
-  - Get recent messages with advanced filtering options
-  - Find messages mentioning specific users
-
-## Rich Message Formatting Support
-
-The following tools now support rich message formatting in Teams channels and chats:
-- `send_channel_message`
-- `send_chat_message`
-- `reply_to_channel_message`
-- `update_channel_message`
-- `update_chat_message`
-
-### Format Options
-
-You can specify the `format` parameter to control the message formatting:
-- `text` (default): Plain text
-- `markdown`: Markdown formatting (bold, italic, lists, links, code, etc.) - converted to sanitized HTML
-
-When `format` is set to `markdown`, the message content is converted to HTML using a secure markdown parser and sanitized to remove potentially dangerous content before being sent to Teams.
-
-If `format` is not specified, the message will be sent as plain text.
-
-### Example Usage
-
-```json
-{
-  "teamId": "...",
-  "channelId": "...",
-  "message": "**Bold text** and _italic text_\n\n- List item 1\n- List item 2\n\n[Link](https://example.com)",
-  "format": "markdown"
-}
-```
-
-```json
-{
-  "chatId": "...",
-  "message": "Simple plain text message",
-  "format": "text"
-}
-```
-
-### Security Features
-
-- **HTML Sanitization**: All markdown content is converted to HTML and sanitized to remove potentially dangerous elements (scripts, event handlers, etc.)
-- **Allowed Tags**: Only safe HTML tags are permitted (p, strong, em, a, ul, ol, li, h1-h6, code, pre, etc.)
-- **Safe Attributes**: Only safe attributes are allowed (href, target, src, alt, title, width, height)
-- **XSS Prevention**: Content is automatically sanitized to prevent cross-site scripting attacks
-
-### Supported Markdown Features
-
-- **Text formatting**: Bold (`**text**`), italic (`_text_`), strikethrough (`~~text~~`)
-- **Links**: `[text](url)` 
-- **Lists**: Bulleted (`- item`) and numbered (`1. item`)
-- **Code**: Inline `` `code` `` and blocks ``` ```code``` ```
-- **Headings**: `# H1` through `###### H6`
-- **Line breaks**: Automatic conversion of newlines to `<br>` tags
-- **Blockquotes**: `> quoted text`
-- **Tables**: GitHub-flavored markdown tables
-
-## 📦 Installation
+**SSE/HTTP** (for AnythingLLM, remote clients):
 
 ```bash
-# Install dependencies
-npm install
-
-# Build the project
-npm run build
-
-# Set up authentication
-npm run auth
+docker compose up -d
+# Server available at http://localhost:8000/sse
 ```
 
-## 🔧 Configuration
+See [INSTALL.md](INSTALL.md) for full deployment instructions including Docker, Claude Desktop, Claude Code, and Traefik reverse proxy setup.
 
-### Prerequisites
-- Node.js 18+
-- Microsoft 365 account with appropriate permissions
-- Azure App Registration with Microsoft Graph permissions
-
-### Required Microsoft Graph Permissions
-- `User.Read` - Read user profile
-- `User.ReadBasic.All` - Read basic user info
-- `Team.ReadBasic.All` - Read team information
-- `Channel.ReadBasic.All` - Read channel information
-- `ChannelMessage.Read.All` - Read channel messages
-- `ChannelMessage.Send` - Send channel messages
-- `ChannelMessage.ReadWrite` - Edit and delete channel messages
-- `Chat.Read` - Read chat messages
-- `Chat.ReadWrite` - Create and manage chats (including edit/delete messages)
-- `Mail.Read` - Required for Microsoft Search API
-- `Calendars.Read` - Required for Microsoft Search API
-- `Files.Read.All` - Required for Microsoft Search API
-- `Sites.Read.All` - Required for Microsoft Search API
-
-## 🛠️ Usage
-
-### Starting the Server
-```bash
-# Development mode with hot reload
-npm run dev
-
-# Production mode
-npm run build && node dist/index.js
-```
-
-### Available MCP Tools
-
-#### Authentication
-- `authenticate` - Initiate OAuth authentication flow
-- `logout` - Clear authentication tokens
-- `get_current_user` - Get authenticated user information
-
-#### User Operations
-- `search_users` - Search for users by name or email
-- `get_user` - Get detailed user information by ID or email
-
-#### Teams Operations
-- `list_teams` - List user's joined teams
-- `list_channels` - List channels in a specific team
-- `get_channel_messages` - Retrieve messages from a team channel with pagination and filtering
-- `send_channel_message` - Send a message to a team channel
-- `update_channel_message` - Edit a previously sent channel message
-- `delete_channel_message` - Soft delete a channel message (supports replies)
-- `list_team_members` - List members of a specific team
-
-#### Chat Operations
-- `list_chats` - List user's chats (1:1 and group)
-- `get_chat_messages` - Retrieve messages from a specific chat with pagination and filtering
-- `send_chat_message` - Send a message to a chat
-- `create_chat` - Create a new 1:1 or group chat
-- `update_chat_message` - Edit a previously sent chat message
-- `delete_chat_message` - Soft delete a chat message
-
-#### Media Operations
-- `download_message_hosted_content` - Download hosted content (images, files) from messages
-
-#### Search Operations
-- `search_messages` - Search across all Teams messages using KQL syntax
-- `get_recent_messages` - Get recent messages with advanced filtering options
-- `get_my_mentions` - Find messages mentioning the current user
-
-## 📋 Examples
+## Features
 
 ### Authentication
+- Client credentials grant (app-only) via MSAL `ConfidentialClientApplication`
+- Reads `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` from environment
+- No interactive auth, no token cache files, no browser
+- MSAL handles token refresh internally
 
-First, authenticate with Microsoft Graph:
+### Teams & Channels
+- List teams (all tenant teams, or filtered by `TEAM_IDS` env var)
+- List channels within teams
+- Read channel messages with full metadata (author, timestamps, importance)
+- Send messages and replies (text or markdown with HTML sanitization)
+- Edit and soft-delete channel messages
+- Download hosted content (images, files) from messages
+
+### Users & Directory
+- Search users by name or email
+- Get detailed user profiles
+- Search users for @mention formatting
+
+## Available Tools
+
+| Tool | Description |
+|---|---|
+| `check_auth` | Verify authentication status |
+| `get_app_info` | Show permissions, capabilities, and limitations |
+| `list_teams` | List accessible teams |
+| `list_channels` | List channels in a team |
+| `get_channel_messages` | Read messages with author and timestamps |
+| `send_channel_message` | Send a message (text or markdown) |
+| `reply_to_channel_message` | Reply to a channel message |
+| `get_channel_message_replies` | Get replies to a message |
+| `update_channel_message` | Edit a sent message |
+| `delete_channel_message` | Soft-delete a message |
+| `list_team_members` | List members with roles |
+| `search_users` | Search directory by name or email |
+| `get_user` | Get user profile by ID or email |
+| `search_users_for_mentions` | Find users for @mentions |
+| `download_message_hosted_content` | Download images/files from messages |
+
+## Azure App Registration
+
+Required **application permissions** (not delegated), with admin consent:
+
+| Permission | Purpose |
+|---|---|
+| `Team.ReadBasic.All` | List teams |
+| `Channel.ReadBasic.All` | List channels |
+| `ChannelMessage.Read.All` | Read channel messages |
+| `ChannelMessage.Send` | Send/reply to messages |
+| `TeamMember.Read.All` | List team members |
+| `User.Read.All` | Search/get user profiles |
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `AZURE_TENANT_ID` | Yes | Azure AD tenant UUID |
+| `AZURE_CLIENT_ID` | Yes | App registration client ID |
+| `AZURE_CLIENT_SECRET` | Yes | App registration client secret |
+| `TEAM_IDS` | No | Comma-separated team IDs to filter |
+| `AUTH_TOKEN` | No | Direct token injection (bypasses MSAL) |
+
+## Deployment Modes
+
+### stdio (VS Code, Claude Desktop, Claude Code)
+
+The server communicates over stdin/stdout using the MCP protocol. Configure your MCP client to run `node dist/index.js` with the required environment variables.
+
+### SSE/HTTP (AnythingLLM, remote clients)
+
+Uses [supergateway](https://github.com/supercorp-ai/supergateway) to bridge stdio to HTTP/SSE:
 
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate
+docker compose up -d
+# or without Docker:
+supergateway --stdio "node dist/index.js" --port 8000 --host 0.0.0.0
 ```
 
-Check your authentication status:
+## Markdown Support
+
+Messages sent via `send_channel_message`, `reply_to_channel_message`, and `update_channel_message` support a `format` parameter:
+
+- `text` (default) — plain text
+- `markdown` — converted to sanitized HTML (bold, italic, links, lists, code blocks, headings, tables)
+
+## What's Not Included
+
+These features from the original floriscornel/teams-mcp require delegated permissions or protected APIs and are not available in app-only mode:
+
+| Feature | Reason |
+|---|---|
+| Chat (1:1 and group) | Protected API — requires Microsoft approval |
+| Message search | Microsoft Search API is delegated-only |
+| Current user context | No `/me` endpoint in app-only flow |
+
+## Development
 
 ```bash
-npx @floriscornel/teams-mcp@latest check
+npm install
+npm run dev          # hot reload with tsx
+npm run build        # compile TypeScript
+npm test             # run tests
+npm run lint         # biome check
 ```
 
-Logout if needed:
+## License
 
-```bash
-npx @floriscornel/teams-mcp@latest logout
-```
-
-### Integrating with Cursor/Claude
-
-This MCP server is designed to work with AI assistants like Claude/Cursor/VS Code through the Model Context Protocol. 
-
-```json
-{
-  "mcpServers": {
-    "teams-mcp": {
-      "command": "npx",
-      "args": ["-y", "@floriscornel/teams-mcp@latest"]
-    }
-  }
-}
-```
-
-## 🔒 Security
-
-- All authentication is handled through Microsoft's OAuth 2.0 flow
-- **Refresh token support**: Access tokens are automatically renewed using cached refresh tokens, so you don't need to re-authenticate every hour
-- Token cache is stored locally at `~/.teams-mcp-token-cache.json`
-- No sensitive data is logged or exposed
-- Follows Microsoft Graph API security best practices
-
-## 📝 License
-
-MIT License - see LICENSE file for details
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run linting and formatting
-5. Submit a pull request
-
-## 📞 Support
-
-For issues and questions:
-- Check the existing GitHub issues
-- Review Microsoft Graph API documentation
-- Ensure proper authentication and permissions are configured
+MIT License — see LICENSE file for details.

@@ -1,0 +1,20 @@
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY tsconfig.json ./
+COPY src/ src/
+RUN npm run build
+
+FROM node:18-alpine
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+RUN npm install -g supergateway
+COPY --from=builder /app/dist/ dist/
+
+EXPOSE 8000
+
+ENTRYPOINT ["supergateway", "--stdio", "node dist/index.js", "--port", "8000", "--host", "0.0.0.0"]
